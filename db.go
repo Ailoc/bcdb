@@ -149,6 +149,8 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 		}
 		// 将当前文件放入旧的数据文件中
 		db.olderFiles[db.activeFile.Fid] = db.activeFile
+		// 关闭当前文件
+		db.activeFile.Close()
 		// 构造新的数据文件
 		if err := db.setActiveFile(); err != nil {
 			return nil, err
