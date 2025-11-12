@@ -19,6 +19,7 @@ type DB struct {
 	activeFile *data.DataFile
 	olderFiles map[uint32]*data.DataFile
 	index      index.Indexer // 内存索引结构，例如BTree
+	closed     bool
 }
 
 func Open(options Options) (*DB, error) {
@@ -55,6 +56,9 @@ func (db *DB) Put(key, value []byte) error {
 	if len(key) == 0 {
 		return ErrKeyisEmpty
 	}
+	if db.closed {
+		return ErrDBClosed
+	}
 	logRecord := &data.LogRecord{
 		Key:   key,
 		Value: value,
@@ -76,6 +80,11 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 	// 加锁
 	db.mu.RLock()
 	defer db.mu.RUnlock()
+
+	if db.closed {
+
+		return nil, ErrDBClosed
+	}
 	// 判断key是否合法
 	if len(key) == 0 {
 		return nil, ErrKeyisEmpty
@@ -85,6 +94,11 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 	if recordPos == nil {
 		return nil, ErrKeyNotFound
 	}
+
+	return db.getValueByPos(recordPos)
+}
+
+func (db *DB) getValueByPos(recordPos *data.LogRecordPos) ([]byte, error) {
 	// 根据recordPos找到文件以及数据位置
 	var dataFile *data.DataFile
 
@@ -108,11 +122,15 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 		return nil, ErrKeyNotFound
 	}
 	return logRecord.Value, nil
+
 }
 
 func (db *DB) Delete(key []byte) error {
 	if len(key) == 0 {
 		return ErrKeyNotFound
+	}
+	if db.closed {
+		return ErrDBClosed
 	}
 	if pos := db.index.Get(key); pos == nil {
 		return nil
@@ -127,6 +145,81 @@ func (db *DB) Delete(key []byte) error {
 		return ErrIndexUpdateFiled
 	}
 	return nil
+}
+
+// 获取数据库中所有的key
+func (db *DB) ListKeys() [][]byte {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	if db.closed {
+		return nil
+	}
+	iter := db.index.Iterator(db.options.Reverse)
+	keys := make([][]byte, db.index.Size())
+	var idx int
+	for iter.ReWind(); iter.Valid(); iter.Next() {
+		keys[idx] = iter.Key()
+		idx++
+	}
+	return keys
+}
+
+// 获取所有数据，执行特定的操作
+func (db *DB) Fold(fn func(key, value []byte) bool) error {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	if db.closed {
+		return ErrDBClosed
+	}
+	iter := db.index.Iterator(db.options.Reverse)
+	for iter.ReWind(); iter.Valid(); iter.Next() {
+		value, err := db.getValueByPos(iter.Value())
+		if err != nil {
+			return err
+		}
+		if !fn(iter.Key(), value) {
+			break
+		}
+	}
+	return nil
+}
+
+func (db *DB) Close() error {
+	if db.activeFile == nil {
+		return nil
+	}
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	if err := db.activeFile.Close(); err != nil {
+		return err
+	}
+
+	for _, file := range db.olderFiles {
+		if err := file.Close(); err != nil {
+			return err
+		}
+	}
+	db.activeFile = nil
+	db.activeFile = nil
+	db.closed = true
+	return nil
+}
+
+// 持久化数据文件
+func (db *DB) Sync() error {
+	if db.closed {
+		return ErrDBClosed
+	}
+	if db.activeFile == nil {
+		return nil
+	}
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	return db.activeFile.Sync()
 }
 
 func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, error) {
@@ -149,8 +242,6 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 		}
 		// 将当前文件放入旧的数据文件中
 		db.olderFiles[db.activeFile.Fid] = db.activeFile
-		// 关闭当前文件
-		db.activeFile.Close()
 		// 构造新的数据文件
 		if err := db.setActiveFile(); err != nil {
 			return nil, err

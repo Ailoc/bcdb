@@ -14,5 +14,5 @@ var (
 	ErrMaxFileSizeInvalid = errors.New("max file size is invalid")
 	ErrDataFileCorrupted  = errors.New("data file corrupted")
 
-	ErrInvaildCRC = errors.New("invalid crc value")
+	ErrDBClosed = errors.New("db closed")
 )
