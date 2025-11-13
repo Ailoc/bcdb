@@ -30,3 +30,13 @@ var DefaultIteratorOptions = IteratorOptions{
 	Prefix:  nil,
 	Reverse: false,
 }
+
+type WriteBatchOptions struct {
+	MaxBatchSize uint
+	SyncWrites   bool
+}
+
+var DefaultWriteBatchOptions = WriteBatchOptions{
+	MaxBatchSize: 1000,
+	SyncWrites:   true,
+}

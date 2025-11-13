@@ -14,5 +14,7 @@ var (
 	ErrMaxFileSizeInvalid = errors.New("max file size is invalid")
 	ErrDataFileCorrupted  = errors.New("data file corrupted")
 
-	ErrDBClosed = errors.New("db closed")
+	ErrDBClosed           = errors.New("db closed")
+	ErrExceedMaxBatchSize = errors.New("exceed max batch size")
+	ErrMergeInProgress    = errors.New("merge in progress")
 )

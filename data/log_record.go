@@ -11,6 +11,7 @@ type LogRecordType byte
 const (
 	LogRecordNormal LogRecordType = iota
 	LogRecordDeleted
+	LogRecordTxnFin
 )
 
 // Header: crc|type|keysize|valuesize
@@ -34,6 +35,11 @@ type logRecordHeader struct {
 	recordType LogRecordType
 	keySize    uint32
 	valueSize  uint32
+}
+
+type TransactionRecord struct { // 暂存的事务数据
+	Record *LogRecord
+	Pos    *LogRecordPos
 }
 
 // 对记录进行编码
@@ -92,4 +98,24 @@ func getLogRecordCRC(lr *LogRecord, header []byte) uint32 {
 	crc = crc32.Update(crc, crc32.IEEETable, lr.Key)
 	crc = crc32.Update(crc, crc32.IEEETable, lr.Value)
 	return crc
+}
+
+func EncodeLogRecordPos(pos *LogRecordPos) []byte {
+	buf := make([]byte, binary.MaxVarintLen32+binary.MaxVarintLen64)
+	var index = 0
+	index += binary.PutVarint(buf[index:], int64(pos.Fid))
+	index += binary.PutVarint(buf[index:], pos.Offset)
+	return buf[:index]
+}
+
+func DecodeLogRecordPos(buf []byte) *LogRecordPos {
+	var index = 0
+	fid, n := binary.Varint(buf[index:])
+	index += n
+	offset, _ := binary.Varint(buf[index:])
+	return &LogRecordPos{
+		Fid:    uint32(fid),
+		Offset: offset,
+	}
+
 }
