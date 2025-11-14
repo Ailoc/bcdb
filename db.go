@@ -5,6 +5,7 @@ import (
 	"bcdb/index"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -50,6 +51,10 @@ func Open(options Options) (*DB, error) {
 
 	// 加载数据文件
 	if err := db.loadDataFiles(); err != nil {
+		return nil, err
+	}
+	// 从hint文件中加载索引
+	if err := db.loadIndexFromHintFile(); err != nil {
 		return nil, err
 	}
 
@@ -348,6 +353,17 @@ func (db *DB) loadIndexFromDataFiles() error {
 	if len(db.fidList) == 0 {
 		return nil
 	}
+	// 检查是否发生过merge
+	hasMerge, recentMergeFid := false, uint32(0)
+	mergeFileName := filepath.Join(db.getMergePath(), data.MergeFinishedFileName)
+	if _, err := os.Stat(mergeFileName); err == nil {
+		mergeid, err := db.getRecentMergeFid(db.getMergePath())
+		if err != nil {
+			return err
+		}
+		hasMerge = true
+		recentMergeFid = mergeid
+	}
 
 	updateIndex := func(key []byte, typ data.LogRecordType, pos *data.LogRecordPos) {
 		var ok bool
@@ -367,6 +383,9 @@ func (db *DB) loadIndexFromDataFiles() error {
 
 	//取出所有文件中的数据
 	for i, fid := range db.fidList {
+		if hasMerge && fid <= int(recentMergeFid) {
+			continue
+		}
 		var fileID = uint32(fid)
 		var dataFile *data.DataFile
 		if fileID == db.activeFile.Fid {

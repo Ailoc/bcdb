@@ -39,7 +39,7 @@ func (db *DB) Merge() error {
 	}
 	// 保存到旧文件当中
 	db.olderFiles[db.activeFile.Fid] = db.activeFile
-	// 创建新的活跃文件，主要是为了明确合并边界
+
 	if err := db.setActiveFile(); err != nil {
 		db.mu.Unlock()
 		return err
@@ -218,4 +218,34 @@ func (db *DB) getRecentMergeFid(dirPath string) (uint32, error) {
 		return 0, err
 	}
 	return uint32(nonMergeFid), nil
+}
+
+func (db *DB) loadIndexFromHintFile() error {
+	hintFileName := filepath.Join(db.getMergePath(), data.HintFileName)
+	// 索引文件不存在
+	if _, err := os.Stat(hintFileName); os.IsNotExist(err) {
+		return nil
+	}
+	//打开索引文件
+	hintFile, err := data.OpenHintFile(hintFileName)
+	if err != nil {
+		return err
+	}
+	var offset int64 = 0
+
+	for {
+		logRecord, size, err := hintFile.ReadLogRecord(offset)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
+		pos := data.DecodeLogRecordPos(logRecord.Value)
+		if !db.index.Put(logRecord.Key, pos) {
+			return ErrIndexUpdateFiled
+		}
+		offset += size
+	}
+	return nil
 }
